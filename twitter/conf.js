@@ -33,14 +33,14 @@
     }
 
     module.exports.loadConf = function (path) {
-        var conf = orzo.readJSON(path);
+        var conf = orzo.readJsonFile(path);
         checkSections(conf);
         
         if (typeof conf.tweets.accounts === 'string') {
-            conf.tweets.accounts = orzo.readJSON(conf.tweets.accounts);
+            conf.tweets.accounts = orzo.readJsonFile(conf.tweets.accounts);
         }
         if (typeof conf.tweets.blacklist === 'string') {
-            conf.tweets.blacklist = orzo.readJSON(conf.tweets.blacklist);
+            conf.tweets.blacklist = orzo.readJsonFile(conf.tweets.blacklist);
         }
         return conf;
     }    
