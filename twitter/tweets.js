@@ -19,6 +19,9 @@
 
 var numWorkers = 4;
 var conf = require('conf').loadConf(env.inputArgs[0]);
+var wl = require('worklog');
+var worklog = new wl.Worklog(conf['tweets']['worklogPath'],
+        new Date(env.startTimestamp * 1000), 86400);
 var waitTime = function () { return 5; };
 
 dataChunks(numWorkers, function (i) {
@@ -40,20 +43,22 @@ applyItems(function (dataChunk, map) {
 
 
 map(function (url) {
+    var page;
+
     orzo.print(url);
-    
+
     function applyOnFirst(where, query, fn) {
         var srch = orzo.html.find(where, query);
         if (srch.length > 0) {
             fn(srch[0]);
         }
-    }    
-    
+    }
+
     try {
         page = orzo.html.loadWebsite(url);
         orzo.html.query(page, 'div.tweet', function (tweetBlock) {
-            orzo.printf('\ttweet');
             var out = {id: null, time: '-', account: url, text: null};
+
             applyOnFirst(tweetBlock, 'span.js-short-timestamp', function (item) {
                 out.time = item.dataset().time;
             });
@@ -61,7 +66,13 @@ map(function (url) {
                 out.text = item.text();
             });
             out.id = tweetBlock.dataset()['item-id'];
-            emit(out.time, out);
+
+            if (worklog.getLatestTimestamp() <= parseInt(out.time)) {
+                emit(out.time, out);
+
+            } else {
+                emit('__ignored__', 1);
+            }
         });
         orzo.sleep(waitTime());
 
@@ -72,34 +83,45 @@ map(function (url) {
 
 
 reduce(numWorkers, function (key, data) {
-    data.forEach(function (item) {
-        emit(key, item);
-    });
+    if (key === '__ignored__') {
+        emit(key, D(data).size());
+
+    } else {
+        data.forEach(function (item) {
+            emit(key, item);
+        });
+    }
 });
 
 
 finish(function (results) {
-    
+
     function dateStamp() {
         var d = new Date();
         return orzo.sprintf('%02d%02d%02d', d.getFullYear(), d.getMonth() + 1, d.getDate());
     }
-        
+
+    worklog.close();
+
     doWith(orzo.fileWriter(orzo.sprintf(conf.tweets.crawlerOutFile, dateStamp())),
         function (fw) {
             results.sorted.each(function (key, data) {
-                data.forEach(function (dataItem) {
-                    fw.writeln(JSON.stringify({
-                        id: dataItem.id,
-                        time: parseInt(dataItem.time),
-                        account: dataItem.account,
-                        text: dataItem.text
-                    }));
-                });
+                if (key !== '__ignored__') {
+                    data.forEach(function (dataItem) {
+                        fw.writeln(JSON.stringify({
+                            id: dataItem.id,
+                            time: parseInt(dataItem.time),
+                            account: dataItem.account,
+                            text: dataItem.text
+                        }));
+                    });
+                }
             });
         },
         function (err) {
             orzo.printf('error: %s\n', err);
         }
     );
+
+    orzo.printf('ignored %s records\n', results.get('__ignored__')[0]);
 });
